@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { useEffect, useRef, useState } from "react";
 
 function App() {
   const [status, setStatus] = useState("Ready");
@@ -10,6 +11,28 @@ function App() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // Listen for global record start/stop events from the Rust backend
+  useEffect(() => {
+    let unlistenStart: (() => void) | null = null;
+    let unlistenStop: (() => void) | null = null;
+
+    (async () => {
+      const u1 = await listen("global-record-start", () => {
+        if (!isRecording) startRecording();
+      });
+      const u2 = await listen("global-record-stop", () => {
+        if (isRecording) stopRecording();
+      });
+      unlistenStart = u1;
+      unlistenStop = u2;
+    })();
+
+    return () => {
+      if (unlistenStart) unlistenStart();
+      if (unlistenStop) unlistenStop();
+    };
+  }, [isRecording]);
 
   async function startRecording() {
     try {

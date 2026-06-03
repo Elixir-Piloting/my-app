@@ -6,13 +6,18 @@ use base64::Engine;
 use dotenvy::dotenv;
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use reqwest::blocking::{multipart, Client};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+
+use tauri::{Emitter, Manager, WindowEvent};
 
 fn main() {
     dotenv().ok();
+
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             hello,
@@ -20,6 +25,55 @@ fn main() {
             transcribe_audio,
             paste_text,
         ])
+        .setup(|app| {
+            // When window close is requested, hide to tray instead
+            let app_handle = app.handle().clone();
+
+            // spawn a thread to monitor global key events (Ctrl + Meta/Win press-and-hold)
+            let pressed_keys: Arc<Mutex<HashSet<rdev::Key>>> = Arc::new(Mutex::new(HashSet::new()));
+            let pressed_keys_thread = pressed_keys.clone();
+            std::thread::spawn(move || {
+                if let Err(err) = rdev::listen(move |event| {
+                    match event.event_type {
+                        rdev::EventType::KeyPress(k) => {
+                            let mut set = pressed_keys_thread.lock().unwrap();
+                            set.insert(k);
+                            let ctrl = set.contains(&rdev::Key::ControlLeft) || set.contains(&rdev::Key::ControlRight);
+                            let meta = set.contains(&rdev::Key::MetaLeft) || set.contains(&rdev::Key::MetaRight);
+                            if ctrl && meta {
+                                if let Some(w) = app_handle.get_webview_window("main") {
+                                    let _ = w.emit("global-record-start", ());
+                                }
+                            }
+                        }
+                        rdev::EventType::KeyRelease(k) => {
+                            let mut set = pressed_keys_thread.lock().unwrap();
+                            set.remove(&k);
+                            let ctrl = set.contains(&rdev::Key::ControlLeft) || set.contains(&rdev::Key::ControlRight);
+                            let meta = set.contains(&rdev::Key::MetaLeft) || set.contains(&rdev::Key::MetaRight);
+                            if !(ctrl && meta) {
+                                if let Some(w) = app_handle.get_webview_window("main") {
+                                    let _ = w.emit("global-record-stop", ());
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }) {
+                    println!("rdev listen error: {:?}", err);
+                }
+            });
+
+            Ok(())
+        })
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } => {
+                // prevent close and hide window to tray
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            _ => {}
+        })
         .run(tauri::generate_context!())
         .expect("error running app");
 }
