@@ -29,9 +29,11 @@ fn main() {
             // When window close is requested, hide to tray instead
             let app_handle = app.handle().clone();
 
-            // spawn a thread to monitor global key events (Ctrl + Meta/Win press-and-hold)
+            // spawn a thread to monitor global key events (Ctrl + Win + Space press-and-hold)
             let pressed_keys: Arc<Mutex<HashSet<rdev::Key>>> = Arc::new(Mutex::new(HashSet::new()));
             let pressed_keys_thread = pressed_keys.clone();
+            let recording = Arc::new(Mutex::new(false));
+            let recording_thread = recording.clone();
             std::thread::spawn(move || {
                 if let Err(err) = rdev::listen(move |event| {
                     match event.event_type {
@@ -40,7 +42,11 @@ fn main() {
                             set.insert(k);
                             let ctrl = set.contains(&rdev::Key::ControlLeft) || set.contains(&rdev::Key::ControlRight);
                             let meta = set.contains(&rdev::Key::MetaLeft) || set.contains(&rdev::Key::MetaRight);
-                            if ctrl && meta {
+                            let space = set.contains(&rdev::Key::Space);
+                            let should_record = ctrl && meta && space;
+                            let mut rec = recording_thread.lock().unwrap();
+                            if should_record && !*rec {
+                                *rec = true;
                                 if let Some(w) = app_handle.get_webview_window("main") {
                                     let _ = w.emit("global-record-start", ());
                                 }
@@ -51,7 +57,11 @@ fn main() {
                             set.remove(&k);
                             let ctrl = set.contains(&rdev::Key::ControlLeft) || set.contains(&rdev::Key::ControlRight);
                             let meta = set.contains(&rdev::Key::MetaLeft) || set.contains(&rdev::Key::MetaRight);
-                            if !(ctrl && meta) {
+                            let space = set.contains(&rdev::Key::Space);
+                            let should_record = ctrl && meta && space;
+                            let mut rec = recording_thread.lock().unwrap();
+                            if !should_record && *rec {
+                                *rec = false;
                                 if let Some(w) = app_handle.get_webview_window("main") {
                                     let _ = w.emit("global-record-stop", ());
                                 }
