@@ -18,11 +18,23 @@ function App() {
     let unlistenStop: (() => void) | null = null;
 
     (async () => {
-      const u1 = await listen("global-record-start", () => {
-        if (!isRecording) startRecording();
+      const u1 = await listen<void>("global-record-start", () => {
+        console.log("[frontend] received global-record-start");
+        setIsRecording((prev) => {
+          if (!prev) {
+            startRecording();
+          }
+          return prev;
+        });
       });
-      const u2 = await listen("global-record-stop", () => {
-        if (isRecording) stopRecording();
+      const u2 = await listen<void>("global-record-stop", () => {
+        console.log("[frontend] received global-record-stop");
+        setIsRecording((prev) => {
+          if (prev) {
+            stopRecording();
+          }
+          return prev;
+        });
       });
       unlistenStart = u1;
       unlistenStop = u2;
@@ -32,7 +44,7 @@ function App() {
       if (unlistenStart) unlistenStart();
       if (unlistenStop) unlistenStop();
     };
-  }, [isRecording]);
+  }, []);
 
   async function startRecording() {
     try {

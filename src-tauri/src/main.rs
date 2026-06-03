@@ -45,8 +45,10 @@ fn main() {
                             let space = set.contains(&rdev::Key::Space);
                             let should_record = ctrl && meta && space;
                             let mut rec = recording_thread.lock().unwrap();
+                            println!("[rdev] key press: {:?}, ctrl={}, meta={}, space={}, should_record={}", k, ctrl, meta, space, should_record);
                             if should_record && !*rec {
                                 *rec = true;
+                                println!("[rdev] STARTING RECORD");
                                 if let Some(w) = app_handle.get_webview_window("main") {
                                     let _ = w.emit("global-record-start", ());
                                 }
@@ -60,8 +62,10 @@ fn main() {
                             let space = set.contains(&rdev::Key::Space);
                             let should_record = ctrl && meta && space;
                             let mut rec = recording_thread.lock().unwrap();
+                            println!("[rdev] key release: {:?}, ctrl={}, meta={}, space={}, should_record={}", k, ctrl, meta, space, should_record);
                             if !should_record && *rec {
                                 *rec = false;
+                                println!("[rdev] STOPPING RECORD");
                                 if let Some(w) = app_handle.get_webview_window("main") {
                                     let _ = w.emit("global-record-stop", ());
                                 }
@@ -121,12 +125,32 @@ fn transcribe_audio(audioBase64: String, language: String) -> Result<Transcripti
 #[tauri::command]
 fn paste_text(text: String) -> Result<(), String> {
     let mut clip = Clipboard::new().map_err(|e| e.to_string())?;
-    clip.set_text(text).map_err(|e| e.to_string())?;
+    clip.set_text(text.clone()).map_err(|e| e.to_string())?;
+    println!("[paste] clipboard set to: {}", text);
+
+    // Give clipboard time to update
+    std::thread::sleep(std::time::Duration::from_millis(100));
 
     let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
+    
+    // Press Ctrl+V to paste
+    println!("[paste] pressing Ctrl+V...");
     let _ = enigo.key(Key::Control, Direction::Press);
-    let _ = enigo.key(Key::Unicode('v'), Direction::Click);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let _ = enigo.key(Key::Unicode('v'), Direction::Press);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let _ = enigo.key(Key::Unicode('v'), Direction::Release);
+    std::thread::sleep(std::time::Duration::from_millis(50));
     let _ = enigo.key(Key::Control, Direction::Release);
+    println!("[paste] Ctrl+V released");
+    
+    // Wait for paste to complete
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    
+    // Clear clipboard for privacy
+    let _ = clip.set_text("");
+    println!("[paste] clipboard cleared");
+    
     Ok(())
 }
 
